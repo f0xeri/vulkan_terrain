@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(vulkan_experiments)
+project(vulkan_terrain)
 
 set(CMAKE_CXX_STANDARD 20)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -7,7 +7,7 @@ find_package(Threads REQUIRED)
 find_package(Vulkan REQUIRED)
 find_program(glslc_executable NAMES glslc HINTS Vulkan::glslc)
 
-add_executable(vulkan_experiments main.cpp thirdParty/stb_image.h core/Application.cpp core/Application.hpp render/vulkan/VulkanBackend.cpp render/vulkan/VulkanBackend.hpp render/vulkan/VulkanPipelineBuilder.cpp render/vulkan/VulkanPipelineBuilder.hpp render/vulkan/VulkanBuffer.cpp render/vulkan/VulkanBuffer.hpp render/vulkan/VulkanMesh.cpp render/vulkan/VulkanMesh.hpp core/Mesh.hpp core/Shader.hpp render/vulkan/VulkanShader.cpp render/vulkan/VulkanShader.hpp core/DescriptorBinding.hpp core/Texture.hpp core/Camera.cpp core/Camera.hpp)
+add_executable(vulkan_terrain main.cpp thirdParty/stb_image.h core/Application.cpp core/Application.hpp render/vulkan/VulkanBackend.cpp render/vulkan/VulkanBackend.hpp render/vulkan/VulkanPipelineBuilder.cpp render/vulkan/VulkanPipelineBuilder.hpp render/vulkan/VulkanBuffer.cpp render/vulkan/VulkanBuffer.hpp render/vulkan/VulkanMesh.cpp render/vulkan/VulkanMesh.hpp core/Mesh.hpp core/Shader.hpp render/vulkan/VulkanShader.cpp render/vulkan/VulkanShader.hpp core/DescriptorBinding.hpp core/Texture.hpp core/Camera.cpp core/Camera.hpp core/ShaderStage.hpp core/Frustum.hpp core/HeightMap.hpp)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/thirdParty/glfw)
 target_include_directories(
@@ -18,7 +18,7 @@ target_include_directories(
         ${CMAKE_PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/thirdParty/
         ${CMAKE_PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIR})
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR})
-target_link_libraries(vulkan_experiments ${Vulkan_LIBRARY})
+target_link_libraries(vulkan_terrain ${Vulkan_LIBRARY})
 
 set(IMGUI_INCLUDE   ${PROJECT_SOURCE_DIR}/thirdParty/imgui/backends
         ${PROJECT_SOURCE_DIR}/thirdParty/imgui)

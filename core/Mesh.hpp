@@ -9,6 +9,7 @@
 #include "glm/glm.hpp"
 #include "tiny_obj_loader.h"
 #include "Shader.hpp"
+#include "HeightMap.hpp"
 
 struct Vertex {
     glm::vec3 position;
@@ -74,7 +75,7 @@ struct Mesh {
     }
 
     // Generate a terrain quad patch for feeding to the tessellation control shader with given size
-    static Mesh generateTerrainPatch(int size) {
+    static Mesh generateTerrainPatch(int size, HeightMap &heightMap) {
         Mesh mesh{};
         const uint32_t vertexCount = size * size;
         mesh.vertices.resize(vertexCount);
@@ -92,6 +93,35 @@ struct Mesh {
                 mesh.vertices[index].normal = {0.0f, 1.0f, 0.0f};
                 mesh.vertices[index].color = {1.0f, 0.0f, 0.0f};
                 mesh.vertices[index].uv = glm::vec2((float)x / size, (float)y / size) * 1.0f;
+            }
+        }
+
+        // calculate normals
+        for (auto x = 0; x < size; x++)
+        {
+            for (auto y = 0; y < size; y++)
+            {
+                // Get height samples centered around current position
+                float heights[3][3];
+                for (auto hx = -1; hx <= 1; hx++)
+                {
+                    for (auto hy = -1; hy <= 1; hy++)
+                    {
+                        heights[hx+1][hy+1] = heightMap.getHeight(x + hx, y + hy);
+                    }
+                }
+
+                // Calculate the normal
+                glm::vec3 normal;
+                // Gx sobel filter
+                normal.x = heights[0][0] - heights[2][0] + 2.0f * heights[0][1] - 2.0f * heights[2][1] + heights[0][2] - heights[2][2];
+                // Gy sobel filter
+                normal.z = heights[0][0] + 2.0f * heights[1][0] + heights[2][0] - heights[0][2] - 2.0f * heights[1][2] - heights[2][2];
+                // Calculate missing up component of the normal using the filtered x and y axis
+                // The first value controls the bump strength
+                normal.y = 0.25f * sqrt( 1.0f - normal.x * normal.x - normal.z * normal.z);
+
+                mesh.vertices[x + y * size].normal = glm::normalize(normal * glm::vec3(2.0f, 1.0f, 2.0f));
             }
         }
 

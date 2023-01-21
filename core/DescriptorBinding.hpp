@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "ShaderStage.hpp"
 
 enum class UniformType : uint32_t
 {
@@ -33,11 +34,12 @@ public:
         std::string name;
         UniformType type;
         uint32_t allocSize;
+        std::vector<ShaderStage> stages;
     };
     std::vector<UniformElement> uniforms;
     DescriptorBinding() = default;
-    void addUniform(uint32_t binding, const std::string& name, UniformType type, uint32_t allocSize) {
-        uniforms.push_back({binding, name, type, allocSize});
+    void addUniform(uint32_t binding, const std::string& name, UniformType type, uint32_t allocSize, const std::vector<ShaderStage>& stages) {
+        uniforms.push_back({binding, name, type, allocSize, stages});
     }
 };
 

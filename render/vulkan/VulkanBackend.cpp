@@ -19,7 +19,7 @@ VulkanBackend::VulkanBackend(const std::shared_ptr<GLFWwindow>& window, std::str
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "No Engine";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_1;
 
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -79,13 +79,18 @@ void VulkanBackend::createPhysicalDevice() {
     }
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
-    physicalDevice = devices[0];
+    physicalDevice = devices[1];
 
-    // print device properties
+    // print devices names
+    for (const auto& phDevice : devices) {
+        VkPhysicalDeviceProperties deviceProperties;
+        vkGetPhysicalDeviceProperties(phDevice, &deviceProperties);
+        std::cout << "Found device: " << deviceProperties.deviceName << std::endl;
+    }
+    // print picked device name
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
-    gpuProperties = deviceProperties;
-    std::cout << "Device name: " << deviceProperties.deviceName << std::endl;
+    std::cout << "Picked device: " << deviceProperties.deviceName << std::endl;
 }
 
 void VulkanBackend::createLogicalDevice() {
@@ -98,6 +103,8 @@ void VulkanBackend::createLogicalDevice() {
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
     VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.tessellationShader = VK_TRUE;
+    deviceFeatures.fillModeNonSolid = VK_TRUE;
     VkDeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
@@ -177,7 +184,7 @@ void VulkanBackend::createSwapchain(uint32_t width, uint32_t height) {
     if (vmaCreateImage(allocator, &depthImageCreateInfo, &depthImageAllocCreateInfo, &depthImage.image, &depthImage.allocation, nullptr) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create depth image");
     }
-    VkImageViewCreateInfo depthImageViewCreateInfo = createImageViewInfo(depthFormat, depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+    VkImageViewCreateInfo depthImageViewCreateInfo = createImageViewInfo(depthFormat, depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_VIEW_TYPE_2D);
     if (vkCreateImageView(device, &depthImageViewCreateInfo, nullptr, &depthImageView) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create depth image view");
     }
@@ -452,23 +459,62 @@ void VulkanBackend::uploadMesh(VulkanMesh& mesh) {
         vmaDestroyBuffer(allocator, mesh.vertexBuffer.buffer, mesh.vertexBuffer.allocation);
     });
     vmaDestroyBuffer(allocator, stagingBuffer.buffer, stagingBuffer.allocation);
+
+    if (!mesh.indices.empty()) {
+        VkBufferCreateInfo indexBufferInfo = {};
+        indexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        indexBufferInfo.pNext = nullptr;
+        indexBufferInfo.size = mesh.indices.size() * sizeof(uint32_t);
+        indexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        vmaallocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        VK_CHECK(vmaCreateBuffer(allocator, &indexBufferInfo, &vmaallocInfo, &mesh.indexBuffer.buffer, &mesh.indexBuffer.allocation, nullptr));
+
+        VkBufferCreateInfo stagingIndexBufferInfo = {};
+        stagingIndexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingIndexBufferInfo.pNext = nullptr;
+        stagingIndexBufferInfo.size = mesh.indices.size() * sizeof(uint32_t);
+        stagingIndexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        vmaallocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        VulkanBuffer stagingIndexBuffer;
+
+        VK_CHECK(vmaCreateBuffer(allocator, &stagingIndexBufferInfo, &vmaallocInfo, &stagingIndexBuffer.buffer, &stagingIndexBuffer.allocation, nullptr));
+
+        vmaMapMemory(allocator, stagingIndexBuffer.allocation, &data);
+        memcpy(data, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+        vmaUnmapMemory(allocator, stagingIndexBuffer.allocation);
+
+        immediateSubmit([&](VkCommandBuffer commandBuffer) {
+            VkBufferCopy copyRegion = {};
+            copyRegion.size = mesh.indices.size() * sizeof(uint32_t);
+            copyRegion.dstOffset = 0;
+            copyRegion.srcOffset = 0;
+            vkCmdCopyBuffer(commandBuffer, stagingIndexBuffer.buffer, mesh.indexBuffer.buffer, 1, &copyRegion);
+        });
+
+        deletionQueue.push_function([=, this]() {
+            vmaDestroyBuffer(allocator, mesh.indexBuffer.buffer, mesh.indexBuffer.allocation);
+        });
+        vmaDestroyBuffer(allocator, stagingIndexBuffer.buffer, stagingIndexBuffer.allocation);
+    }
 }
 
 void VulkanBackend::addMesh(const std::string &name, const Mesh &mesh) {
     VulkanMesh vulkanMesh = {};
     vulkanMesh.vertices = mesh.vertices;
     vulkanMesh.vertexBuffer = {};
+    vulkanMesh.indices = mesh.indices;
+    vulkanMesh.indexBuffer = {};
     meshes[name] = vulkanMesh;
     //uploadMesh(*vulkanMesh);
 }
 
-VkImageCreateInfo VulkanBackend::createImageInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent) {
+VkImageCreateInfo VulkanBackend::createImageInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, int arrayLayers) {
     VkImageCreateInfo imageInfo = {};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.extent = extent;
     imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
+    imageInfo.arrayLayers = arrayLayers;
     imageInfo.format = format;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -479,17 +525,17 @@ VkImageCreateInfo VulkanBackend::createImageInfo(VkFormat format, VkImageUsageFl
     return imageInfo;
 }
 
-VkImageViewCreateInfo VulkanBackend::createImageViewInfo(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags) {
+VkImageViewCreateInfo VulkanBackend::createImageViewInfo(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags, VkImageViewType viewType, int imageLayers) {
     VkImageViewCreateInfo viewInfo = {};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.viewType = viewType;
     viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = aspectFlags;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
+    viewInfo.subresourceRange.layerCount = imageLayers;
 
     return viewInfo;
 }
@@ -539,11 +585,12 @@ void VulkanBackend::createGraphicsPipeline(const std::string &name, const Shader
 
     pipelineBuilder.vertexInputInfo = VulkanPipelineBuilder::createVertexInputInfo(std::shared_ptr<std::vector<VkVertexInputBindingDescription>>(&vertexDescription.bindings, [](std::vector<VkVertexInputBindingDescription>*) {}),
                                                                                    std::shared_ptr<std::vector<VkVertexInputAttributeDescription>>(&vertexDescription.attributes, [](std::vector<VkVertexInputAttributeDescription>*) {}));
-    pipelineBuilder.inputAssembly = VulkanPipelineBuilder::createInputAssemblyInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipelineBuilder.inputAssembly = VulkanPipelineBuilder::createInputAssemblyInfo(VK_PRIMITIVE_TOPOLOGY_PATCH_LIST);
     pipelineBuilder.rasterizer = VulkanPipelineBuilder::createRasterizerInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     pipelineBuilder.multisampling = VulkanPipelineBuilder::createMultisamplingInfo(VK_SAMPLE_COUNT_1_BIT);
     pipelineBuilder.colorBlendAttachment = VulkanPipelineBuilder::createColorBlendAttachmentState();
     pipelineBuilder.depthStencil = VulkanPipelineBuilder::createDepthStencilInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+    pipelineBuilder.tessellation = VulkanPipelineBuilder::createTessellationInfo(4);
 
     pipelineBuilder.viewport = {};
     pipelineBuilder.viewport.x = 0.0f;
@@ -666,6 +713,14 @@ void VulkanBackend::drawMesh(const VulkanMesh &mesh) {
     vkCmdDraw(getCurrentFrame().mainCommandBuffer, mesh.vertices.size(), 1, 0, 0);
 }
 
+
+void VulkanBackend::drawMeshIndexed(const VulkanMesh &mesh) {
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(getCurrentFrame().mainCommandBuffer, 0, 1, &mesh.vertexBuffer.buffer, &offset);
+    vkCmdBindIndexBuffer(getCurrentFrame().mainCommandBuffer, mesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(getCurrentFrame().mainCommandBuffer, mesh.indices.size(), 1, 0, 0, 0);
+}
+
 void VulkanBackend::endFrame() {
     vkCmdEndRenderPass(getCurrentFrame().mainCommandBuffer);
     VK_CHECK(vkEndCommandBuffer(getCurrentFrame().mainCommandBuffer));
@@ -723,7 +778,6 @@ void VulkanBackend::createDescriptors(const Shader &pipelineShader) {
     std::vector<VkDescriptorPoolSize> sizes ={{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10 },
                                               { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10 },
                                               { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 }};
-
     VkDescriptorPoolCreateInfo pool_info = {};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_info.flags = 0;
@@ -740,7 +794,7 @@ void VulkanBackend::createDescriptors(const Shader &pipelineShader) {
         binding.binding = uniform.binding;
         binding.descriptorType = getDescriptorTypeFromUniformType(uniform.type);
         binding.descriptorCount = 1;
-        binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        binding.stageFlags = convertShaderStagesArrayVulkan(uniform.stages);
         binding.pImmutableSamplers = nullptr;
         bindings.push_back(binding);
     }
@@ -806,7 +860,7 @@ void VulkanBackend::createDescriptors(const Shader &pipelineShader) {
         textureBind->binding = i;
         textureBind->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         textureBind->descriptorCount = 1;
-        textureBind->stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        textureBind->stageFlags = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT | VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         textureBind->pImmutableSamplers = nullptr;
         textureBindings.push_back(*textureBind);
     }
@@ -837,9 +891,8 @@ void VulkanBackend::bindDescriptorSets(const std::vector<uint32_t> &dynamicOffse
 void VulkanBackend::bindDescriptorSets() {
     auto &frame = getCurrentFrame();
     vkCmdBindDescriptorSets(frame.mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline.pipelineLayout, 0, 1, &frame.globalDescriptorSet, 0, nullptr);
-    // TODO: fix hardcoded value
-    if (materials["default"].textureSet != VK_NULL_HANDLE)
-        vkCmdBindDescriptorSets(frame.mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline.pipelineLayout, 1, 1, &materials["default"].textureSet, 0, nullptr);
+    if (currentPipeline.textureSet != VK_NULL_HANDLE)
+        vkCmdBindDescriptorSets(frame.mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline.pipelineLayout, 1, 1, &currentPipeline.textureSet, 0, nullptr);
 }
 
 void VulkanBackend::immediateSubmit(const std::function<void(VkCommandBuffer)> &function) {
@@ -877,10 +930,10 @@ VkSubmitInfo VulkanBackend::createSubmitInfo(VkCommandBuffer *cmd) {
     return info;
 }
 
-// TODO: mem leak somewhere here
+// TODO: something leaks here
 void VulkanBackend::addTexture(const Texture &texture, uint32_t binding) {
     void *pixels = texture.data;
-    VkDeviceSize imageSize = texture.width * texture.height * 4;
+    VkDeviceSize imageSize = texture.width * texture.height * texture.nrChannels * texture.nrLayers;
     auto stagingBuffer = createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
     void *data;
     vmaMapMemory(allocator, stagingBuffer.allocation, &data);
@@ -892,7 +945,7 @@ void VulkanBackend::addTexture(const Texture &texture, uint32_t binding) {
     imageExtent.height = static_cast<uint32_t>(texture.height);
     imageExtent.depth = 1;
 
-    VkImageCreateInfo dimageInfo = createImageInfo(VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, imageExtent);
+    VkImageCreateInfo dimageInfo = createImageInfo(VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, imageExtent, texture.nrLayers);
 
     AllocatedImage *newImage = new AllocatedImage();
 
@@ -900,14 +953,14 @@ void VulkanBackend::addTexture(const Texture &texture, uint32_t binding) {
     dimgAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
     vmaCreateImage(allocator, &dimageInfo, &dimgAllocInfo, &newImage->image, &newImage->allocation, nullptr);
-    //delete texture.data;
+
     immediateSubmit([&](VkCommandBuffer cmd) {
         VkImageSubresourceRange range;
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         range.baseMipLevel = 0;
         range.levelCount = 1;
         range.baseArrayLayer = 0;
-        range.layerCount = 1;
+        range.layerCount = texture.nrLayers;
 
         VkImageMemoryBarrier imageBarrier_toTransfer = {};
         imageBarrier_toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -922,19 +975,22 @@ void VulkanBackend::addTexture(const Texture &texture, uint32_t binding) {
 
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier_toTransfer);
 
-        VkBufferImageCopy copyRegion = {};
-        copyRegion.bufferOffset = 0;
-        copyRegion.bufferRowLength = 0;
-        copyRegion.bufferImageHeight = 0;
-
-        copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copyRegion.imageSubresource.mipLevel = 0;
-        copyRegion.imageSubresource.baseArrayLayer = 0;
-        copyRegion.imageSubresource.layerCount = 1;
-        copyRegion.imageExtent = imageExtent;
+        std::vector<VkBufferImageCopy> copyRegions;
+        for (uint32_t layer = 0; layer < texture.nrLayers; layer++)
+        {
+            size_t offset = texture.width * texture.height * texture.nrChannels * layer;
+            VkBufferImageCopy bufferCopyRegion = {};
+            bufferCopyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            bufferCopyRegion.imageSubresource.mipLevel = 0;
+            bufferCopyRegion.imageSubresource.baseArrayLayer = layer;
+            bufferCopyRegion.imageSubresource.layerCount = 1;
+            bufferCopyRegion.imageExtent = imageExtent;
+            bufferCopyRegion.bufferOffset = offset;
+            copyRegions.push_back(bufferCopyRegion);
+        }
 
         //copy the buffer into the image
-        vkCmdCopyBufferToImage(cmd, stagingBuffer.buffer, newImage->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+        vkCmdCopyBufferToImage(cmd, stagingBuffer.buffer, newImage->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegions.size(), copyRegions.data());
 
         VkImageMemoryBarrier imageBarrier_toReadable = imageBarrier_toTransfer;
 
@@ -948,6 +1004,7 @@ void VulkanBackend::addTexture(const Texture &texture, uint32_t binding) {
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier_toReadable);
     });
 
+
     vmaDestroyBuffer(allocator, stagingBuffer.buffer, stagingBuffer.allocation);
     VulkanTexture resTexture{};
     resTexture.texture = texture;
@@ -955,7 +1012,9 @@ void VulkanBackend::addTexture(const Texture &texture, uint32_t binding) {
     // TODO: do we need it?
     delete newImage;
     resTexture.binding = binding;
-    VkImageViewCreateInfo imageInfo = createImageViewInfo(VK_FORMAT_R8G8B8A8_SRGB, resTexture.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
+    if (texture.nrLayers > 1) viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    VkImageViewCreateInfo imageInfo = createImageViewInfo(VK_FORMAT_R8G8B8A8_SRGB, resTexture.image.image, VK_IMAGE_ASPECT_COLOR_BIT, viewType, texture.nrLayers);
     vkCreateImageView(device, &imageInfo, nullptr, &resTexture.imageView);
     loadedTextures[texture.name] = resTexture;
 }

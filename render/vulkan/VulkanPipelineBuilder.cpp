@@ -42,6 +42,7 @@ VkPipeline VulkanPipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pa
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pTessellationState = &tessellation;
 
     VkPipeline newPipeline;
     if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &newPipeline) != VK_SUCCESS) {
@@ -153,4 +154,12 @@ VkPipelineDepthStencilStateCreateInfo VulkanPipelineBuilder::createDepthStencilI
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
     return depthStencil;
+}
+
+VkPipelineTessellationStateCreateInfo VulkanPipelineBuilder::createTessellationInfo(uint32_t patchControlPoints) {
+    VkPipelineTessellationStateCreateInfo tessellationState = {};
+    tessellationState.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+    tessellationState.pNext = nullptr;
+    tessellationState.patchControlPoints = patchControlPoints;
+    return tessellationState;
 }

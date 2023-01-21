@@ -216,8 +216,8 @@ public:
     void loadMeshes();
     void uploadMesh(VulkanMesh& mesh);
 
-    VkImageCreateInfo createImageInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent);
-    VkImageViewCreateInfo createImageViewInfo(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags);
+    VkImageCreateInfo createImageInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, int arrayLayers = 1);
+    VkImageViewCreateInfo createImageViewInfo(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags, VkImageViewType viewType, int imageLayers = 1);
     VkCommandBufferBeginInfo createCommandBufferBeginInfo(VkCommandBufferUsageFlags flags = 0);
     VkSubmitInfo createSubmitInfo(VkCommandBuffer* cmd);
     VkSamplerCreateInfo createSamplerCreateInfo(VkFilter filters, VkSamplerAddressMode samplerAddressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT);

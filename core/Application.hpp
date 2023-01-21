@@ -12,7 +12,13 @@
 struct CameraData {
     glm::mat4 view;
     glm::mat4 projection;
-    glm::mat4 viewProj;
+    glm::mat4 modelView;
+    glm::vec4 lightPos = glm::vec4(-48.0f, -40.0f, 46.0f, 0.0f);
+    glm::vec4 frustumPlanes[6];
+    float displacementFactor = 32.0f;
+    float tessellationFactor = 0.75f;
+    glm::vec2 viewportDim;
+    float tessellatedEdgeSize = 20.0f;
 };
 
 class Application {

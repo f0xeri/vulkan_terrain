@@ -5,13 +5,19 @@ layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec3 vColor;
 layout (location = 3) in vec2 vTexCoord;
 
-layout (location = 0) out vec3 outColor;
-layout (location = 1) out vec2 texCoord;
+layout (location = 0) out vec3 outNormal;
+layout (location = 1) out vec2 outUV;
 
 layout(set = 0, binding = 0) uniform CameraBuffer {
     mat4 view;
     mat4 proj;
-    mat4 viewproj;
+    mat4 modelview;
+    vec4 lightPos;
+    vec4 frustumPlanes[6];
+    float displacementFactor;
+    float tessellationFactor;
+    vec2 viewportDim;
+    float tessellatedEdgeSize;
 } cameraData;
 
 layout(push_constant) uniform constants {
@@ -20,9 +26,7 @@ layout(push_constant) uniform constants {
 
 void main()
 {
-    //mat4 transformMatrix = (cameraData.viewproj * inConstants.render_matrix);
-    mat4 transformMatrix = (cameraData.viewproj * inConstants.model);
-    gl_Position = transformMatrix * vec4(vPosition, 1.0f);
-    outColor = vColor;
-    texCoord = vTexCoord;
+    gl_Position = vec4(vPosition.xyz, 1.0);
+    outNormal = vNormal;
+    outUV = vTexCoord;
 }

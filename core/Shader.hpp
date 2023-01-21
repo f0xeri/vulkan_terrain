@@ -8,16 +8,7 @@
 #include <vector>
 #include <string>
 #include "DescriptorBinding.hpp"
-
-enum class ShaderStage
-{
-    VERTEX,
-    TESSELLATION_CONTROL,
-    TESSELLATION_EVALUATION,
-    GEOMETRY,
-    FRAGMENT,
-    COMPUTE,
-};
+#include "ShaderStage.hpp"
 
 struct ShaderStageInfo
 {

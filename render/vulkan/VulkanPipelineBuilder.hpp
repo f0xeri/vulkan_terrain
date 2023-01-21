@@ -20,6 +20,7 @@ public:
     VkPipelineColorBlendAttachmentState colorBlendAttachment;
     VkPipelineMultisampleStateCreateInfo multisampling;
     VkPipelineDepthStencilStateCreateInfo depthStencil;
+    VkPipelineTessellationStateCreateInfo tessellation;
     VkPipelineLayout pipelineLayout;
 
     VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
@@ -33,6 +34,7 @@ public:
     static VkPipelineColorBlendAttachmentState createColorBlendAttachmentState();
     static VkPipelineLayoutCreateInfo createPipelineLayoutInfo();
     static VkPipelineDepthStencilStateCreateInfo createDepthStencilInfo(bool bDepthTest, bool bDepthWrite, VkCompareOp compareOp);
+    static VkPipelineTessellationStateCreateInfo createTessellationInfo(uint32_t patchControlPoints);
     ~VulkanPipelineBuilder();
 };
 

@@ -28,13 +28,33 @@ public:
     }
 
     const char *name;
-    int width{}, height{}, nrChannels{};
+    int width{}, height{}, nrChannels{}, nrLayers{1};
     unsigned char *data = nullptr;
 
     // get pixel color
     glm::vec4 getPixelColor(int x, int y) const {
         int index = (y * width + x) * 4;
         return {data[index], data[index + 1], data[index + 2], data[index + 3]};
+    }
+};
+
+
+class TextureArray : public Texture {
+public:
+    explicit TextureArray(const char *name) : Texture(name) {}
+    void loadTexturesFromFiles(const std::vector<std::string> &paths) {
+        std::vector<unsigned char*> vectoredData;
+        for (const auto &path : paths) {
+            unsigned char *temp = stbi_load(path.c_str(), &width, &height, &nrChannels, STBI_rgb_alpha);
+            vectoredData.push_back(temp);
+        }
+        data = new unsigned char[width * height * nrChannels * vectoredData.size()];
+        nrLayers = vectoredData.size();
+        for (int i = 0; i < vectoredData.size(); i++) {
+            memcpy(data + i * width * height * nrChannels, vectoredData[i], width * height * nrChannels);
+            delete[] vectoredData[i];
+        }
+        vectoredData.clear();
     }
 };
 

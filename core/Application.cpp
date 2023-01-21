@@ -6,6 +6,8 @@
 #include "Application.hpp"
 #include "Shader.hpp"
 #include "Camera.hpp"
+#include "Frustum.hpp"
+#include "HeightMap.hpp"
 
 Application::Application(int width, int height, const char* title) {
     this->width = width;
@@ -47,55 +49,71 @@ void Application::initScene() {
     Shader shader = {};
     shader.name = "default";
     shader.stagesInfo.push_back(vulkanBackend->getShaderLoader()->loadFromBinaryFile("assets/shaders/triangle.vert.spv", ShaderStage::VERTEX));
+    shader.stagesInfo.push_back(vulkanBackend->getShaderLoader()->loadFromBinaryFile("assets/shaders/triangle.tesc.spv", ShaderStage::TESSELLATION_CONTROL));
+    shader.stagesInfo.push_back(vulkanBackend->getShaderLoader()->loadFromBinaryFile("assets/shaders/triangle.tese.spv", ShaderStage::TESSELLATION_EVALUATION));
     shader.stagesInfo.push_back(vulkanBackend->getShaderLoader()->loadFromBinaryFile("assets/shaders/triangle.frag.spv", ShaderStage::FRAGMENT));
     shader.descriptorBinding = DescriptorBinding();
-    shader.descriptorBinding.addUniform(0, "cameraBuffer", UniformType::UNIFORM_BUFFER, sizeof(CameraData));
+    shader.descriptorBinding.addUniform(0,
+                                        "cameraBuffer",
+                                        UniformType::UNIFORM_BUFFER,
+                                        sizeof(CameraData),
+                                        {ShaderStage::VERTEX, ShaderStage::TESSELLATION_CONTROL, ShaderStage::TESSELLATION_EVALUATION});
     shader.constants.push_back({"modelBuffer", sizeof(glm::mat4), 0, {ShaderStage::VERTEX}});
     vulkanBackend->createShader(shader);
 
-    Mesh cvpiMesh;
-    cvpiMesh.loadFromObj("assets/cvpi.obj");
-    vulkanBackend->addMesh("cvpi", cvpiMesh);
-    vulkanBackend->addMesh("cvpi2", cvpiMesh);
-
-    vulkanBackend->meshes["cvpi2"].model = glm::translate(glm::mat4(1.0f), glm::vec3(-60.0f, 0.0f, -20.0f));
-    vulkanBackend->meshes["cvpi"].model = glm::translate(glm::mat4(1.0f), glm::vec3(60.0f, 0.0f, -20.0f));
+    Texture texture("heightmap");
+    texture.loadTextureFromFile("assets/clarityi.png");
+    HeightMap heightMap(&texture, 64);
+    Mesh terrainMesh = Mesh::generateTerrainPatch(64, heightMap);
+    vulkanBackend->addMesh("terrain", terrainMesh);
 }
 
 void Application::run() {
-    glm::vec3 camPos = { 0.f,-10.0f,-100.f };
+    glm::vec3 camPos = { 0.f,-20.0f,-100.f };
+    Frustum frustum;
     while (!glfwWindowShouldClose(mainWindow.get())) {
         glfwPollEvents();
         vulkanBackend->beginFrame();
 
         glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-        glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)width / height, 0.1f, 200.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)width / height, 0.1f, 2000.0f);
         projection[1][1] *= -1;
 
         vulkanBackend->bindPipeline("default");
         vulkanBackend->bindDescriptorSets();
-        CameraData cameraData = {view, projection, projection * view};
-        vulkanBackend->setUniformBuffer("cameraBuffer", &cameraData, sizeof(CameraData));
+
+        CameraData cameraData;
+        cameraData.view = view;
+        cameraData.projection = projection;
+        //cameraData.lightPos.y = -0.5f - cameraData.displacementFactor;
+        cameraData.viewportDim = glm::vec2(width, height);
+
         for (auto &mesh : vulkanBackend->meshes) {
             glm::mat4 model = glm::rotate(mesh.second.model, glm::radians(vulkanBackend->frameNumber * 0.4f), glm::vec3(0, 1, 0));
+            cameraData.modelView = view * model;
+            frustum.update(projection * cameraData.modelView);
+            memcpy(cameraData.frustumPlanes, frustum.planes.data(), sizeof(glm::vec4) * 6);
+            vulkanBackend->setUniformBuffer("cameraBuffer", &cameraData, sizeof(CameraData));
             vulkanBackend->pushConstants(&model, sizeof(glm::mat4), ShaderStage::VERTEX);
-            vulkanBackend->drawMesh(mesh.second);
+            vulkanBackend->drawMeshIndexed(mesh.second);
         }
         vulkanBackend->endFrame();
     }
 }
 
 void Application::initPipelines() {
-    Texture cvpiTexture("cvpiTexture");
-    cvpiTexture.loadTextureFromFile("assets/cvpi.jpg");
+    Texture defaultTexture("defaultTexture");
+    defaultTexture.loadTextureFromFile("assets/clarityi.png");
+    vulkanBackend->addTexture(defaultTexture, 0);
 
-    Texture cvpiTexture2("cvpiTexture2");
-    cvpiTexture2.loadTextureFromFile("assets/cvpi2.jpg");
-    cvpiTexture2.name = "cvpiTexture2";
-
-
-    vulkanBackend->addTexture(cvpiTexture, 0);
-    vulkanBackend->addTexture(cvpiTexture2, 1);
+    TextureArray terrainTexture("terrainTexture");
+    terrainTexture.loadTexturesFromFiles({"assets/terrainTextures/1.png",
+                                          "assets/terrainTextures/2.png",
+                                          "assets/terrainTextures/3.png",
+                                          "assets/terrainTextures/4.png",
+                                          "assets/terrainTextures/5.png",
+                                          "assets/terrainTextures/6.png"});
+    vulkanBackend->addTexture(terrainTexture, 1);
 
     vulkanBackend->createDescriptors(vulkanBackend->shaders["default"]);
     vulkanBackend->createGraphicsPipeline("default", vulkanBackend->shaders["default"]);
